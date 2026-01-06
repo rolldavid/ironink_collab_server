@@ -27,12 +27,13 @@ interface WSSharedDoc extends Y.Doc {
   awareness: awarenessProtocol.Awareness;
 }
 
-const updateHandler = (update: Uint8Array, origin: unknown, doc: WSSharedDoc) => {
+const updateHandler = (update: Uint8Array, origin: unknown, doc: Y.Doc) => {
+  const wsDoc = doc as WSSharedDoc;
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, messageSync);
   syncProtocol.writeUpdate(encoder, update);
   const message = encoding.toUint8Array(encoder);
-  doc.conns.forEach((_, conn) => send(doc, conn, message));
+  wsDoc.conns.forEach((_, conn) => send(wsDoc, conn, message));
 };
 
 class WSSharedDocImpl extends Y.Doc implements WSSharedDoc {
@@ -112,7 +113,6 @@ const messageListener = (conn: WebSocket, doc: WSSharedDoc, message: Uint8Array)
     }
   } catch (err) {
     console.error('Error handling message:', err);
-    doc.emit('error', [err]);
   }
 };
 
