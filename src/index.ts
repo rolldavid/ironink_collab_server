@@ -3,7 +3,8 @@ import http from 'http';
 import { URL } from 'url';
 import jwt from 'jsonwebtoken';
 import * as Y from 'yjs';
-import { setupWSConnection, docs } from './y-websocket-utils.js';
+import { setupWSConnection, docs, getDocsForPersistence } from './y-websocket-utils.js';
+import { saveAllPending, isPersistenceAvailable } from './persistence.js';
 import 'dotenv/config';
 
 const PORT = process.env.PORT || 4000;
@@ -35,10 +36,12 @@ const roomConnections = new Map<string, Set<AuthenticatedWebSocket>>();
 // Verify JWT token
 function verifyToken(token: string): CollabToken | null {
   try {
+    console.log('[Auth] Verifying token with secret:', JWT_SECRET.slice(0, 8) + '...');
     const decoded = jwt.verify(token, JWT_SECRET) as CollabToken;
+    console.log('[Auth] Token verified successfully for user:', decoded.displayName);
     return decoded;
   } catch (err) {
-    console.error('Token verification failed:', err);
+    console.error('[Auth] Token verification failed:', err);
     return null;
   }
 }
@@ -150,14 +153,34 @@ wss.on('close', () => {
 // Start server
 server.listen(PORT, () => {
   console.log(`Collaboration server running on port ${PORT}`);
+  if (isPersistenceAvailable()) {
+    console.log('R2 persistence enabled - document state will be preserved across restarts');
+  } else {
+    console.warn('R2 persistence not configured - document state is in-memory only');
+  }
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down...');
+const gracefulShutdown = async (signal: string) => {
+  console.log(`${signal} received, shutting down gracefully...`);
+
+  // Save all pending documents to R2
+  if (isPersistenceAvailable()) {
+    console.log('Saving all documents to R2...');
+    try {
+      await saveAllPending(getDocsForPersistence());
+      console.log('Documents saved successfully');
+    } catch (err) {
+      console.error('Failed to save documents:', err);
+    }
+  }
+
   wss.close(() => {
     server.close(() => {
       process.exit(0);
     });
   });
-});
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
